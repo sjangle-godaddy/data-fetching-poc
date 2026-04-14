@@ -175,7 +175,7 @@ export function useCreatePost() {
 | **TypeScript** | No types (reduxful) | Full type inference |
 | **Bundle size** | redux + react-redux + reduxful + thunk | ~13kb gzipped |
 | **Mutation + cache sync** | Manual dispatch | queryClient.invalidateQueries |
-| **Maintenance status** | reduxful is archived/unmaintained | Active, large community (40k+ GitHub stars) |
+| **Maintenance status** | reduxful last commit activity was way long back | Active, large community (40k+ GitHub stars) |
 
 ### Lines of Code Comparison (from POC)
 
@@ -266,6 +266,6 @@ npm run dev
 # Visit http://localhost:3000
 ```
 
-- `/redux` — User list and detail pages using Redux + Reduxful
-- `/react-query` — Same pages using TanStack Query
-- Both approaches fetch from JSONPlaceholder and render identical UIs
+- `/redux` — Todo CRUD app using Redux + Reduxful with manual optimistic updates and refetch
+- `/react-query` — Same todo app using TanStack Query with built-in optimistic updates, cache invalidation, stale-while-revalidate, retry, and background refetch
+- Both implementations use an in-memory API with artificial delays to simulate real network conditions

@@ -1,11 +1,9 @@
 import { createStore, combineReducers, applyMiddleware } from 'redux';
 import { thunk } from 'redux-thunk';
-import usersApi from './api/usersApi';
-import postsApi from './api/postsApi';
+import todosApi from './api/todosApi';
 
 const rootReducer = combineReducers({
-  ...usersApi.reducers,
-  ...postsApi.reducers
+  ...todosApi.reducers
 });
 
 export function makeStore() {

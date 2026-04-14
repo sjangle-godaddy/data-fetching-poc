@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Data Fetching POC — Redux vs React Query",
-  description: "Side-by-side comparison of Redux + Reduxful vs TanStack Query for server-state management",
+  title: "Todo App — Redux vs React Query",
+  description: "CRUD todo app comparing Redux + Reduxful vs TanStack Query with optimistic updates, cache invalidation, and retry",
 };
 
 export default function RootLayout({
