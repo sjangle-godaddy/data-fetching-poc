@@ -1,8 +1,8 @@
-# Proposal: Migrate from Reduxful to TanStack Query
+# Proposal: TanStack Query over Reduxful for Server-State
 
 ## TL;DR
 
-Replace **reduxful + Redux** with **TanStack Query v5** for server-state management. The companion POC in this repo demonstrates the difference using a full CRUD todo app — same features, ~67% less code, with built-in optimistic updates, caching, retry, and background sync that Redux requires manual implementation for.
+Use **TanStack Query v5** for server-state management instead of **reduxful + Redux**. The companion POC in this repo demonstrates the difference using a full CRUD todo app — same features, ~67% less code, with built-in optimistic updates, caching, retry, and background sync that Redux requires manual implementation for.
 
 ---
 
@@ -24,7 +24,7 @@ On top of that, every endpoint requires ~90+ lines across 3 files (API definitio
 
 ## The Proposal
 
-Adopt **TanStack Query v5** for all server-state. Keep Redux only if needed for client-side state (UI toggles, form wizards, etc.).
+Adopt **TanStack Query v5** for all server-state (API data fetching and mutations).
 
 ### What TanStack Query gives us for free
 
@@ -142,30 +142,49 @@ Same result, but the pattern is standardized — every mutation follows the same
 
 ---
 
-## Migration Plan
-
-### New projects
-Use TanStack Query from day one.
-
-### Existing projects (incremental)
-1. Install `@tanstack/react-query`, wrap app in `QueryClientProvider` (coexists with Redux)
-2. Pick one endpoint, replace its reduxful definition with a `useQuery` hook
-3. Remove its reducer from `combineReducers`
-4. Repeat until all server-state is migrated
-5. Remove reduxful (and Redux entirely if no client-state remains)
-
-### Client-side state
-Redux is still fine for complex client-side state. For simpler needs, consider **Zustand** (~1kb) or **React Context + useReducer** (zero dependencies).
-
----
-
 ## Risks
 
 | Risk | Level | Mitigation |
 |---|---|---|
-| Learning curve | Low | Hooks-based API; productive in < 1 day |
-| Ecosystem stability | Low | Mature, 40k+ GitHub stars, active maintenance |
-| Backward compatibility | None | Coexists with Redux during migration |
+| Learning curve | Low | Hooks-based API; any React developer can be productive in < 1 day |
+| Ecosystem stability | Low | Mature, 45k+ GitHub stars, active maintenance |
+| Backward compatibility | None | Can coexist with Redux in existing apps during migration |
+
+---
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+## A Note on Global State: Zustand over Redux
+
+With TanStack Query handling all server-state, Redux loses its primary job. If the app still needs global client-side state (UI toggles, sidebar, theme, form wizards), **Zustand** is a lighter fit than Redux.
+
+Additionally, in Gasket v7, `@gasket/plugin-redux` has been removed and `@gasket/redux` is deprecated — Redux is no longer a framework-level dependency. There's no reason to add it to a new project.
+
+| | Redux | Zustand |
+|---|---|---|
+| **Setup** | `createStore` + `combineReducers` + `applyMiddleware` + `Provider` | `create()` — one function, no provider |
+| **Per slice** | Reducer + action types + action creators | Plain object with functions |
+| **Bundle** | redux + react-redux + redux-thunk (~7kb) | ~1.5kb |
+| **TypeScript** | Manual typing or RTK | Full inference |
+| **DevTools** | Separate extension | Same Redux DevTools, opt-in |
+
+```typescript
+// Zustand — that's the entire store
+const useSidebarStore = create<SidebarState>((set) => ({
+  open: false,
+  toggle: () => set((s) => ({ open: !s.open })),
+}));
+
+// Component — no Provider, no dispatch, no action types
+const { open, toggle } = useSidebarStore();
+```
+
+**Recommended stack for new apps:** TanStack Query (server-state) + Zustand (client-state).
 
 ---
 
@@ -179,4 +198,4 @@ npm run dev
 
 - `/redux` — Todo CRUD with Redux + Reduxful (manual optimistic updates, manual refetch)
 - `/react-query` — Same app with TanStack Query (optimistic updates, cache invalidation, stale-while-revalidate, retry, background refetch)
-- Both hit the same in-memory API with artificial delays so you can see the difference in UX
+- Both hit the same in-memory API with artificial delays so you can see the UX difference
