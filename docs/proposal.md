@@ -1,264 +1,175 @@
-# Data Fetching Strategy Proposal: TanStack Query (React Query)
+# Proposal: Migrate from Reduxful to TanStack Query
 
-## Executive Summary
+## TL;DR
 
-We recommend adopting **TanStack Query v5** for all server-state management in new projects, replacing the current **reduxful + Redux** approach. This change delivers approximately **67% reduction in boilerplate code**, provides built-in caching, request deduplication, and automatic loading/error states — features that currently require manual implementation. Redux remains an option for purely client-side state if needed, but server-state (API data) should be managed by TanStack Query going forward.
-
----
-
-## Current Approach: Reduxful + Redux
-
-### How It Works
-
-Our current stack uses [reduxful](https://github.com/godaddy/reduxful) as a wrapper around Redux to manage API state:
-
-1. **API Definition File** — Define endpoints using `setupApi('name', apiDesc, apiConfig)`, which auto-generates action creators, reducers, and selectors
-2. **Store Setup** — Spread `.reducers` from each API definition into `combineReducers`
-3. **Component Wiring** — Use `connect(mapStateToProps, mapDispatchToProps)` to access data
-
-### Typical Code Anatomy
-
-**API definition (~25-45 lines per file):**
-```javascript
-import { setupApi } from 'reduxful';
-import requestAdapter from '../request-adapter';
-
-const apiDesc = {
-  getUsers: {
-    url: 'https://api.example.com/users',
-    method: 'GET',
-  },
-  getUser: {
-    url: 'https://api.example.com/users/:userId',
-    method: 'GET',
-    dataTransform: (user) => {
-      // normalize data
-      return { ...user, displayName: user.name.toUpperCase() };
-    }
-  }
-};
-
-const usersApi = setupApi('usersApi', apiDesc, { requestAdapter });
-export default usersApi;
-```
-
-**Store setup (~15-25 lines):**
-```javascript
-import { createStore, combineReducers, applyMiddleware } from 'redux';
-import thunk from 'redux-thunk';
-import usersApi from './api/usersApi';
-
-const rootReducer = combineReducers({
-  ...usersApi.reducers,
-  // ...more API reducers
-});
-
-export const store = createStore(rootReducer, applyMiddleware(thunk));
-```
-
-**Connected component (~50-65 lines):**
-```javascript
-import { connect } from 'react-redux';
-import { isUpdating, hasError } from 'reduxful';
-import usersApi from '../redux/api/usersApi';
-
-function UserList({ users, isLoading, error, getUsers }) {
-  useEffect(() => { getUsers(); }, [getUsers]);
-
-  if (isLoading) return <Spinner />;
-  if (error) return <Error />;
-  return users.map(user => <UserCard key={user.id} user={user} />);
-}
-
-const mapStateToProps = (state) => {
-  const response = usersApi.selectors.getUsers(state);
-  return {
-    users: response?.value ?? null,
-    isLoading: isUpdating(response),
-    error: hasError(response),
-  };
-};
-
-const mapDispatchToProps = {
-  getUsers: usersApi.actionCreators.getUsers,
-};
-
-export default connect(mapStateToProps, mapDispatchToProps)(UserList);
-```
-
-### Pain Points
-
-1. **No caching** — Every navigation re-fetches data, even if it was fetched seconds ago
-2. **No request deduplication** — Multiple components requesting the same data trigger duplicate API calls
-3. **Manual loading/error state extraction** — Every component must check `isUpdating(response)`, `hasError(response)`, and extract `response?.value`
-4. **Verbose boilerplate** — ~95 lines across 3+ files for a simple list fetch
-5. **No background refetching** — Stale data is served without revalidation
-6. **No TypeScript types** — reduxful does not ship types, making the codebase harder to work with
-7. **Unmaintained library** — reduxful's last publish was years ago
-8. **Scattered data transforms** — Some happen in API definitions, some in components, some in reducers
+Replace **reduxful + Redux** with **TanStack Query v5** for server-state management. The companion POC in this repo demonstrates the difference using a full CRUD todo app — same features, ~67% less code, with built-in optimistic updates, caching, retry, and background sync that Redux requires manual implementation for.
 
 ---
 
-## Proposed Approach: TanStack Query v5
+## The Problem
 
-### How It Works
+Our current stack uses [reduxful](https://github.com/godaddy/reduxful) to manage API data. It works, but every feature teams expect from a modern data layer has to be built by hand:
 
-TanStack Query manages server-state through hooks:
+- **No caching** — every navigation re-fetches, even for data fetched seconds ago
+- **No request deduplication** — multiple components hitting the same endpoint = duplicate calls
+- **No optimistic updates** — UI waits for the server round-trip on every mutation
+- **No retry** — a single failed request surfaces an error immediately
+- **No background sync** — stale data stays stale until the user triggers a refetch
+- **No TypeScript support** — reduxful ships no types
+- **Unmaintained** — reduxful's last meaningful activity was years ago
 
-```typescript
-// Define the query (8 lines, including imports)
-import { useQuery } from '@tanstack/react-query';
-
-export function useUsers() {
-  return useQuery({
-    queryKey: ['users'],
-    queryFn: () => fetch('/api/users').then(res => res.json()),
-  });
-}
-
-// Use in component (no connect, no mapState, no useEffect)
-function UserList() {
-  const { data: users, isLoading, error } = useUsers();
-
-  if (isLoading) return <Spinner />;
-  if (error) return <Error />;
-  return users.map(user => <UserCard key={user.id} user={user} />);
-}
-```
-
-**Mutations with automatic cache invalidation:**
-```typescript
-export function useCreatePost() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (newPost) =>
-      fetch('/api/posts', {
-        method: 'POST',
-        body: JSON.stringify(newPost),
-      }).then(res => res.json()),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['posts'] });
-    },
-  });
-}
-```
-
-### What You Get Out of the Box
-
-- **Caching** with configurable `staleTime` and `gcTime` (garbage collection time)
-- **Automatic request deduplication** — multiple components using the same query make one request
-- **Background refetching** on window focus, network reconnect, and configurable intervals
-- **Retry logic** with exponential backoff (configurable)
-- **Optimistic updates** with automatic rollback on error
-- **Pagination** via `useInfiniteQuery`
-- **React Query DevTools** — inspect cache state, query timing, and status in real-time
-- **Full TypeScript support** with type inference
-- **First-class SSR/Next.js support** with `prefetchQuery` and hydration
+On top of that, every endpoint requires ~90+ lines across 3 files (API definition, store config, connected component) just to fetch and display data.
 
 ---
 
-## Side-by-Side Comparison
+## The Proposal
 
-| Capability | Redux + Reduxful | TanStack Query v5 |
+Adopt **TanStack Query v5** for all server-state. Keep Redux only if needed for client-side state (UI toggles, form wizards, etc.).
+
+### What TanStack Query gives us for free
+
+| Capability | With Reduxful | With TanStack Query |
 |---|---|---|
-| **Boilerplate per API endpoint** | ~30-45 lines (API def + store + adapter) | ~8 lines (hook) |
-| **Boilerplate per component** | ~50-65 lines (connect + mapState + useEffect) | ~20-25 lines (hook + render) |
-| **Caching** | None | Built-in, configurable |
-| **Request deduplication** | None | Automatic |
-| **Loading/error states** | Manual (isUpdating, hasError, .value) | Automatic (isLoading, error, data) |
-| **Background refetching** | None | Window focus, reconnect, interval |
-| **Retry logic** | None | Built-in with exponential backoff |
-| **Optimistic updates** | Manual (complex) | Built-in pattern with rollback |
-| **Pagination / Infinite scroll** | Manual | useInfiniteQuery |
-| **Devtools** | Redux DevTools (all state mixed) | React Query DevTools (server state only) |
-| **SSR / Next.js** | Manual hydration via next-redux-wrapper | First-class prefetchQuery |
-| **TypeScript** | No types (reduxful) | Full type inference |
-| **Bundle size** | redux + react-redux + reduxful + thunk | ~13kb gzipped |
-| **Mutation + cache sync** | Manual dispatch | queryClient.invalidateQueries |
-| **Maintenance status** | reduxful last commit activity was way long back | Active, large community (40k+ GitHub stars) |
+| Caching | Manual | Built-in (`staleTime`, `gcTime`) |
+| Request deduplication | Manual | Automatic |
+| Loading / error states | `isUpdating()`, `hasError()`, `.value` | `isLoading`, `error`, `data` |
+| Optimistic updates | Manual local state + rollback logic | `onMutate` / `onError` / `onSettled` |
+| Cache invalidation | Re-dispatch action creators | `invalidateQueries()` |
+| Background refetch | Manual (`setInterval`, focus listeners) | Built-in (`refetchOnWindowFocus`, reconnect) |
+| Retry on failure | Manual try/catch loop | Built-in with configurable count |
+| Stale-while-revalidate | Not possible | Built-in (`staleTime` + `isFetching`) |
+| Devtools | Redux DevTools (all state mixed) | React Query DevTools (server state only) |
+| TypeScript | None | Full type inference |
+| Bundle | redux + react-redux + reduxful + thunk | ~13kb gzipped |
 
-### Lines of Code Comparison (from POC)
+---
 
-| Feature | Redux + Reduxful LOC | React Query LOC | Reduction |
-|---|---|---|---|
-| User list fetch | ~95 | ~25 | ~74% |
-| User detail + posts | ~105 | ~30 | ~71% |
-| Create post mutation | ~85 | ~35 | ~59% |
-| Infrastructure / setup | ~35 | ~15 | ~57% |
-| **Total** | **~320** | **~105** | **~67%** |
+## Code Comparison
+
+### Fetching data
+
+**Reduxful** — API definition + store setup + connected component:
+
+```javascript
+// 1. API definition
+const apiDesc = {
+  getTodos: { url: '/api/todos', method: 'GET' },
+};
+const todosApi = setupApi('todosApi', apiDesc, { requestAdapter });
+
+// 2. Store setup
+const rootReducer = combineReducers({ ...todosApi.reducers });
+const store = createStore(rootReducer, applyMiddleware(thunk));
+
+// 3. Component
+function TodoList({ todos, isLoading, getTodos }) {
+  useEffect(() => { getTodos(); }, [getTodos]);
+  if (isLoading) return <Spinner />;
+  return todos.map(t => <TodoItem key={t.id} todo={t} />);
+}
+const mapStateToProps = (state) => ({
+  todos: todosApi.selectors.getTodos(state)?.value ?? [],
+  isLoading: isUpdating(todosApi.selectors.getTodos(state)),
+});
+export default connect(mapStateToProps, {
+  getTodos: todosApi.actionCreators.getTodos,
+})(TodoList);
+```
+
+**TanStack Query** — one hook, one component:
+
+```typescript
+// Hook
+export function useTodos() {
+  return useQuery({
+    queryKey: ['todos'],
+    queryFn: () => fetch('/api/todos').then(res => res.json()),
+  });
+}
+
+// Component
+function TodoList() {
+  const { data: todos, isLoading } = useTodos();
+  if (isLoading) return <Spinner />;
+  return todos.map(t => <TodoItem key={t.id} todo={t} />);
+}
+```
+
+### Mutations with optimistic updates
+
+**Reduxful** — manual optimistic state, manual rollback, manual refetch:
+
+```javascript
+const handleAdd = async (title) => {
+  // Manual optimistic: add to local state
+  setOptimistic(prev => [{ id: 'temp', title, completed: false }, ...prev]);
+  try {
+    await createTodo({}, { body: JSON.stringify({ title }) });
+    getTodos(); // Manual refetch
+  } catch {
+    // Manual rollback
+  }
+  setOptimistic(prev => prev.filter(t => t.id !== 'temp'));
+};
+```
+
+**TanStack Query** — declarative optimistic pattern:
+
+```typescript
+useMutation({
+  mutationFn: ({ title }) => fetch('/api/todos', { method: 'POST', body: JSON.stringify({ title }) }),
+  onMutate: async ({ title }) => {
+    await queryClient.cancelQueries({ queryKey: ['todos'] });
+    const previous = queryClient.getQueryData(['todos']);
+    queryClient.setQueryData(['todos'], old => [{ id: 'temp', title, completed: false }, ...old]);
+    return { previous };
+  },
+  onError: (_err, _vars, ctx) => queryClient.setQueryData(['todos'], ctx.previous),
+  onSettled: () => queryClient.invalidateQueries({ queryKey: ['todos'] }),
+});
+```
+
+Same result, but the pattern is standardized — every mutation follows the same `onMutate`/`onError`/`onSettled` structure instead of ad-hoc `useState` + `try/catch` in each component.
 
 ---
 
 ## Alternatives Considered
 
-### RTK Query (Redux Toolkit Query)
-
-**Pros:**
-- Stays in the Redux ecosystem
-- Auto-generated hooks from endpoint definitions
-- Built-in caching and invalidation
-
-**Cons:**
-- Still requires Redux store setup and Redux Toolkit boilerplate
-- Heavier bundle than TanStack Query
-- If we're moving away from Redux for server state, there's no benefit to staying half-in
-- Steeper learning curve for developers unfamiliar with Redux Toolkit's `createApi`
-
-**Verdict:** A good option if the team wants to stay in Redux, but adds unnecessary complexity when TanStack Query provides the same features with simpler setup.
-
-### SWR (Vercel)
-
-**Pros:**
-- Lightweight (~4kb), simple API
-- Good Next.js integration (same team)
-- `useSWR` hook is intuitive
-
-**Cons:**
-- Fewer features: no query cancellation, no offline mutation support
-- No built-in devtools with same depth
-- Smaller plugin/middleware ecosystem
-- No built-in mutation abstraction (no `useMutation` equivalent until recently)
-
-**Verdict:** Viable for simple use cases, but TanStack Query provides a more complete feature set for complex applications.
-
+| Option | Why not |
+|---|---|
+| **RTK Query** | Still requires Redux store + Toolkit boilerplate. If we're moving off Redux for server state, no reason to stay half-in. |
+| **SWR** | Lighter, but missing query cancellation, offline mutations, deep devtools, and a mature `useMutation` abstraction. |
 
 ---
 
-## Migration Strategy
+## Migration Plan
 
-### New Projects
-Use TanStack Query from day one. No Redux required for server-state.
+### New projects
+Use TanStack Query from day one.
 
-### Existing Projects (Incremental Migration)
-1. Install `@tanstack/react-query` and wrap the app in `QueryClientProvider` (can coexist with Redux)
-2. Pick one API endpoint and replace its reduxful definition with a `useQuery` hook
-3. Remove the corresponding reducer from `combineReducers`
-4. Repeat for each endpoint
-5. Once all server-state is migrated, remove reduxful and (if no client-state remains in Redux) remove Redux entirely
+### Existing projects (incremental)
+1. Install `@tanstack/react-query`, wrap app in `QueryClientProvider` (coexists with Redux)
+2. Pick one endpoint, replace its reduxful definition with a `useQuery` hook
+3. Remove its reducer from `combineReducers`
+4. Repeat until all server-state is migrated
+5. Remove reduxful (and Redux entirely if no client-state remains)
 
-### What About Client-Side State?
-Redux is still a valid option for purely client-side state (UI state, complex form state, cross-component coordination). However, for new projects, also consider lighter alternatives:
-- **React Context + useReducer** — built-in, no dependencies
-- **Zustand** — minimal API, ~1kb
-- **Jotai** — atomic state management
+### Client-side state
+Redux is still fine for complex client-side state. For simpler needs, consider **Zustand** (~1kb) or **React Context + useReducer** (zero dependencies).
 
 ---
 
-## Risk Assessment
+## Risks
 
 | Risk | Level | Mitigation |
 |---|---|---|
-| Learning curve | **Low** | Hooks-based API is intuitive; any React developer can be productive in < 1 day |
-| Team familiarity | **Low** | Simpler API than Redux; less to learn, not more |
-| Ecosystem stability | **Low** | TanStack Query v5 is mature, maintained, used in thousands of production apps |
-| Backward compatibility | **None** | Can coexist with Redux in the same app during migration |
-| Vendor risk | **Low** | MIT license, large contributor base, framework-agnostic core |
+| Learning curve | Low | Hooks-based API; productive in < 1 day |
+| Ecosystem stability | Low | Mature, 40k+ GitHub stars, active maintenance |
+| Backward compatibility | None | Coexists with Redux during migration |
 
 ---
 
-## POC Reference
-
-See the companion Next.js app in this repo for a working side-by-side comparison:
+## Try the POC
 
 ```bash
 npm install
@@ -266,6 +177,6 @@ npm run dev
 # Visit http://localhost:3000
 ```
 
-- `/redux` — Todo CRUD app using Redux + Reduxful with manual optimistic updates and refetch
-- `/react-query` — Same todo app using TanStack Query with built-in optimistic updates, cache invalidation, stale-while-revalidate, retry, and background refetch
-- Both implementations use an in-memory API with artificial delays to simulate real network conditions
+- `/redux` — Todo CRUD with Redux + Reduxful (manual optimistic updates, manual refetch)
+- `/react-query` — Same app with TanStack Query (optimistic updates, cache invalidation, stale-while-revalidate, retry, background refetch)
+- Both hit the same in-memory API with artificial delays so you can see the difference in UX

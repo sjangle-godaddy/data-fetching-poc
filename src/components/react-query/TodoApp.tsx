@@ -11,7 +11,7 @@ import TodoFilter, { type FilterValue } from "@/components/TodoFilter";
 
 export default function TodoApp() {
   const [filter, setFilter] = useState<FilterValue>("all");
-  const { data: todos, isLoading, isFetching, error } = useTodos();
+  const { data: todos, isLoading, isFetching, isStale, dataUpdatedAt, error } = useTodos();
   const createMutation = useCreateTodo();
   const updateMutation = useUpdateTodo();
   const deleteMutation = useDeleteTodo();
@@ -55,6 +55,27 @@ export default function TodoApp() {
           </span>
         )}
       </div>
+
+      {dataUpdatedAt > 0 && !isLoading && (
+        <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900">
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${
+              isFetching
+                ? "animate-pulse bg-blue-500"
+                : isStale
+                  ? "bg-amber-400"
+                  : "bg-green-500"
+            }`}
+          />
+          <span className="text-gray-600 dark:text-gray-400">
+            {isFetching
+              ? "Fetching fresh data from server..."
+              : isStale
+                ? `Stale — cached from ${new Date(dataUpdatedAt).toLocaleTimeString()}`
+                : `Fresh — cached from ${new Date(dataUpdatedAt).toLocaleTimeString()} (fresh for 30s)`}
+          </span>
+        </div>
+      )}
 
       <AddTodoForm
         onAdd={(title) => createMutation.mutate({ title })}
