@@ -1,8 +1,16 @@
 # Proposal: TanStack Query over Reduxful for Server-State
 
-## TL;DR
+## What is "Server State"?
 
-Use **TanStack Query v5** for server-state management instead of **reduxful + Redux**. The companion POC in this repo demonstrates the difference using a full CRUD todo app — same features, ~67% less code, with built-in optimistic updates, caching, retry, and background sync that Redux requires manual implementation for.
+"Server state" doesn't mean state that lives on the Node.js server. It means **the client-side state your app maintains for data that originates from the server** — data you fetched, cached, and may need to keep in sync with the backend.
+
+Concrete examples from our domain:
+
+- **Fetching auctions** — the client requests a list from the API and holds the result in memory so the UI can render it.
+- **Adding to watchlist** — the client sends a mutation and the auction list needs to reflect that change. The updated list is still server-owned data; the client is just a consumer of it.
+- **Pagination, filtering, search results** — all server-driven, all managed on the client until the next fetch.
+
+Because this data originates from the server and must stay in sync with it, it has fundamentally different lifecycle needs than local UI state: it can go stale, it needs caching, it may fail and need retry, and multiple components may need the same data simultaneously.
 
 ---
 
