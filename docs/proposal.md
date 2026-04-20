@@ -159,7 +159,7 @@ Same result, but the pattern is standardized — every mutation follows the same
 <br>
 <br>
 
-## A Note on Global State: Zustand over Redux
+## (Optional) A Note on Global State: Zustand over Redux
 
 With TanStack Query handling all server-state, Redux loses its primary job. If the app still needs global client-side state (UI toggles, sidebar, theme, form wizards), **Zustand** is a lighter fit than Redux.
 
