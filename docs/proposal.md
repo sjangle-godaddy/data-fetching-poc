@@ -1,16 +1,11 @@
-# Proposal: TanStack Query over Reduxful for Server-State
+# TanStack Query over Reduxful for Server-State
 
 ## What is "Server State"?
 
 "Server state" doesn't mean state that lives on the Node.js server. It means **the client-side state your app maintains for data that originates from the server** — data you fetched, cached, and may need to keep in sync with the backend.
 
-Concrete examples from our domain:
-
-- **Fetching auctions** — the client requests a list from the API and holds the result in memory so the UI can render it.
-- **Adding to watchlist** — the client sends a mutation and the auction list needs to reflect that change. The updated list is still server-owned data; the client is just a consumer of it.
-- **Pagination, filtering, search results** — all server-driven, all managed on the client until the next fetch.
-
-Because this data originates from the server and must stay in sync with it, it has fundamentally different lifecycle needs than local UI state: it can go stale, it needs caching, it may fail and need retry, and multiple components may need the same data simultaneously.
+- It doesn't replaces redux, axios, fetch API
+- Layer on top of this to simplify the state management
 
 ---
 
@@ -24,31 +19,9 @@ Our current stack uses [reduxful](https://github.com/godaddy/reduxful) to manage
 - **No retry** — a single failed request surfaces an error immediately
 - **No background sync** — stale data stays stale until the user triggers a refetch
 - **No TypeScript support** — reduxful ships no types
-- **Unmaintained** — reduxful's last meaningful activity was years ago
+- **Not very actively maintained** — reduxful's last meaningful activity was years ago
 
 On top of that, every endpoint requires ~90+ lines across 3 files (API definition, store config, connected component) just to fetch and display data.
-
----
-
-## The Proposal
-
-Adopt **TanStack Query v5** for all server-state (API data fetching and mutations).
-
-### What TanStack Query gives us for free
-
-| Capability | With Reduxful | With TanStack Query |
-|---|---|---|
-| Caching | Manual | Built-in (`staleTime`, `gcTime`) |
-| Request deduplication | Manual | Automatic |
-| Loading / error states | `isUpdating()`, `hasError()`, `.value` | `isLoading`, `error`, `data` |
-| Optimistic updates | Manual local state + rollback logic | `onMutate` / `onError` / `onSettled` |
-| Cache invalidation | Re-dispatch action creators | `invalidateQueries()` |
-| Background refetch | Manual (`setInterval`, focus listeners) | Built-in (`refetchOnWindowFocus`, reconnect) |
-| Retry on failure | Manual try/catch loop | Built-in with configurable count |
-| Stale-while-revalidate | Not possible | Built-in (`staleTime` + `isFetching`) |
-| Devtools | Redux DevTools (all state mixed) | React Query DevTools (server state only) |
-| TypeScript | None | Full type inference |
-| Bundle | redux + react-redux + reduxful + thunk | ~13kb gzipped |
 
 ---
 
@@ -60,9 +33,7 @@ Adopt **TanStack Query v5** for all server-state (API data fetching and mutation
 
 ```javascript
 // 1. API definition
-const apiDesc = {
-  getTodos: { url: '/api/todos', method: 'GET' },
-};
+const apiDesc = { getTodos: { url: '/api/todos', method: 'GET' }, };
 const todosApi = setupApi('todosApi', apiDesc, { requestAdapter });
 
 // 2. Store setup
@@ -75,10 +46,12 @@ function TodoList({ todos, isLoading, getTodos }) {
   if (isLoading) return <Spinner />;
   return todos.map(t => <TodoItem key={t.id} todo={t} />);
 }
+
 const mapStateToProps = (state) => ({
   todos: todosApi.selectors.getTodos(state)?.value ?? [],
   isLoading: isUpdating(todosApi.selectors.getTodos(state)),
 });
+
 export default connect(mapStateToProps, {
   getTodos: todosApi.actionCreators.getTodos,
 })(TodoList);
@@ -110,14 +83,14 @@ function TodoList() {
 ```javascript
 const handleAdd = async (title) => {
   // Manual optimistic: add to local state
-  setOptimistic(prev => [{ id: 'temp', title, completed: false }, ...prev]);
+  // setOptimistic(prev => [{ id: 'temp', title, completed: false }, ...prev]);
   try {
     await createTodo({}, { body: JSON.stringify({ title }) });
     getTodos(); // Manual refetch
   } catch {
-    // Manual rollback
+    // Error handling / Rollback
   }
-  setOptimistic(prev => prev.filter(t => t.id !== 'temp'));
+  // setOptimistic(prev => prev.filter(t => t.id !== 'temp'));
 };
 ```
 
@@ -143,29 +116,34 @@ Same result, but the pattern is standardized — every mutation follows the same
 
 ## Alternatives Considered
 
-| Option | Why not |
-|---|---|
+
+| Option        | Why not                                                                                                                  |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | **RTK Query** | Still requires Redux store + Toolkit boilerplate. If we're moving off Redux for server state, no reason to stay half-in. |
-| **SWR** | Lighter, but missing query cancellation, offline mutations, deep devtools, and a mature `useMutation` abstraction. |
+| **SWR**       | Lighter, but missing query cancellation, offline mutations, deep devtools, and a mature `useMutation` abstraction.       |
+
 
 ---
 
 ## Risks
 
-| Risk | Level | Mitigation |
-|---|---|---|
-| Learning curve | Low | Hooks-based API; any React developer can be productive in < 1 day |
-| Ecosystem stability | Low | Mature, 45k+ GitHub stars, active maintenance |
-| Backward compatibility | None | Can coexist with Redux in existing apps during migration |
+
+| Risk                   | Level | Mitigation                                                        |
+| ---------------------- | ----- | ----------------------------------------------------------------- |
+| Learning curve         | Low   | Hooks-based API; any React developer can be productive in < 1 day |
+| Ecosystem stability    | Low   | Mature, 45k+ GitHub stars, active maintenance                     |
+| Backward compatibility | None  | Can coexist with Redux in existing apps during migration          |
+
 
 ---
 
-<br>
-<br>
-<br>
-<br>
-<br>
-<br>
+  
+  
+  
+  
+  
+  
+
 
 ## (Optional) A Note on Global State: Zustand over Redux
 
@@ -173,13 +151,15 @@ With TanStack Query handling all server-state, Redux loses its primary job. If t
 
 Additionally, in Gasket v7, `@gasket/plugin-redux` has been removed and `@gasket/redux` is deprecated — Redux is no longer a framework-level dependency. There's no reason to add it to a new project.
 
-| | Redux | Zustand |
-|---|---|---|
-| **Setup** | `createStore` + `combineReducers` + `applyMiddleware` + `Provider` | `create()` — one function, no provider |
-| **Per slice** | Reducer + action types + action creators | Plain object with functions |
-| **Bundle** | redux + react-redux + redux-thunk (~7kb) | ~1.5kb |
-| **TypeScript** | Manual typing or RTK | Full inference |
-| **DevTools** | Separate extension | Same Redux DevTools, opt-in |
+
+|                | Redux                                                              | Zustand                                |
+| -------------- | ------------------------------------------------------------------ | -------------------------------------- |
+| **Setup**      | `createStore` + `combineReducers` + `applyMiddleware` + `Provider` | `create()` — one function, no provider |
+| **Per slice**  | Reducer + action types + action creators                           | Plain object with functions            |
+| **Bundle**     | redux + react-redux + redux-thunk (~7kb)                           | ~1.5kb                                 |
+| **TypeScript** | Manual typing or RTK                                               | Full inference                         |
+| **DevTools**   | Separate extension                                                 | Same Redux DevTools, opt-in            |
+
 
 ```typescript
 // Zustand — that's the entire store
@@ -207,3 +187,4 @@ npm run dev
 - `/redux` — Todo CRUD with Redux + Reduxful (manual optimistic updates, manual refetch)
 - `/react-query` — Same app with TanStack Query (optimistic updates, cache invalidation, stale-while-revalidate, retry, background refetch)
 - Both hit the same in-memory API with artificial delays so you can see the UX difference
+

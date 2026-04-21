@@ -72,7 +72,7 @@ export default function TodoApp() {
               ? "Fetching fresh data from server..."
               : isStale
                 ? `Stale — cached from ${new Date(dataUpdatedAt).toLocaleTimeString()}`
-                : `Fresh — cached from ${new Date(dataUpdatedAt).toLocaleTimeString()} (fresh for 10s)`}
+                : `Fresh — cached from ${new Date(dataUpdatedAt).toLocaleTimeString()} (fresh for 15s)`}
           </span>
         </div>
       )}
