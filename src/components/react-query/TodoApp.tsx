@@ -12,9 +12,9 @@ import TodoFilter, { type FilterValue } from "@/components/TodoFilter";
 export default function TodoApp() {
   const [filter, setFilter] = useState<FilterValue>("all");
   const { data: todos, isLoading, isFetching, isStale, dataUpdatedAt, error } = useTodos();
-  const createMutation = useCreateTodo();
-  const updateMutation = useUpdateTodo();
-  const deleteMutation = useDeleteTodo();
+  const createMutation = useCreateTodo(); // Create a new todo
+  const updateMutation = useUpdateTodo(); // Update a todo
+  const deleteMutation = useDeleteTodo(); // Delete a todo
 
   const filtered = useMemo(() => {
     if (!todos) return [];
